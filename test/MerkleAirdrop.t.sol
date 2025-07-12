@@ -3,8 +3,11 @@ pragma solidity ^0.8.24;
 import {Test, console} from "forge-std/Test.sol";
 import {MerkleAirdrop} from "../src/MerkleAirdrop.sol";
 import {BagelToken} from "../src/BagelToken.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ZkSyncChainChecker} from "lib/foundry-devops/src/ZkSyncChainChecker.sol";
+import {DeployMerkleAirdrop} from "../script/DeployMerkleAirdrop.s.sol";
 
-contract MerkleAirdropTest is Test {
+contract MerkleAirdropTest is ZkSyncChainChecker, Test {
     MerkleAirdrop public airdrop;
     BagelToken public token;
 
@@ -28,18 +31,31 @@ contract MerkleAirdropTest is Test {
     bytes32[] public PROOF = [proofOne, proofTwo];
 
     function setUp() public {
-        token = new BagelToken();
+
+        if (!isZkSyncChain()) {
+            DeployMerkleAirdrop deployer = new DeployMerkleAirdrop();
+            (airdrop, token) = deployer.DeployMerkleAirdrop();
+        }else {
+            token = new BagelToken();
+            airdrop = new MerkleAirdrop(
+                ROOT,
+                IERC20(token)
+            );
+            token.mint(address(this), AMOUNT_TO_SEND);
+            token.transfer(address(airdrop), AMOUNT_TO_SEND);
+        }
+            
+        }
 
         (user, userPrivKey) = makeAddrAndKey("testUser");
 
-        airdrop = new MerkleAirdrop(ROOT, token);
 
         AMOUNT_TO_SEND = AMOUNT_TO_CLAIM * 4;
         address owner = address(this);
-        token.mint(owner, AMOUNT_TO_SEND);
+        // token.mint(owner, AMOUNT_TO_SEND);
 
-        token.approve(address(airdrop), AMOUNT_TO_SEND);
-        token.transfer(address(airdrop), AMOUNT_TO_SEND);
+        // token.approve(address(airdrop), AMOUNT_TO_SEND);
+        // token.transfer(address(airdrop), AMOUNT_TO_SEND);
     }
 
     function testUsersCanClaim() public {
