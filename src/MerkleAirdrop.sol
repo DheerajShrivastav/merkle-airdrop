@@ -5,6 +5,7 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 contract MerkleAirdrop is EIP712 {
     // Purpose:
@@ -20,7 +21,7 @@ contract MerkleAirdrop is EIP712 {
     event Claim(address indexed account, uint256 amount);
 
     bytes32 private constant MESSAGE_TYPEHASH =
-        0x810786b83997ad50983567660c1d9050f79500bb7c2470579e75690d45184163;
+        keccak256("AirdropClaim(address to,uint256 amount)");
     bytes32 public immutable i_merkleRoot;
     IERC20 private immutable i_airdropToken;
     mapping(address cliamant => bool) private s_hasClaimed;
@@ -48,6 +49,21 @@ contract MerkleAirdrop is EIP712 {
         return _hashTypedDataV4(structHash);
     }
 
+    function getMessageHash(
+        address to,
+        uint256 amount
+    ) public view returns (bytes32) {
+        return
+            _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        MESSAGE_TYPEHASH,
+                        AirdropClaim({to: to, amount: amount})
+                    )
+                )
+            );
+    }
+
     function claim(
         address to,
         uint256 amount,
@@ -60,13 +76,13 @@ contract MerkleAirdrop is EIP712 {
             revert MerkleAirdrop__AlreadyClaimed();
         }
 
-        bytes32 digest = getMessage(to, amount);
-        if (!_isValidSignature(to, digest, v, r, s)) {
+        // bytes32 digest = getMessageHash(to, amount);
+        if (!_isValidSignature(to, getMessageHash(to, amount), v, r, s)) {
             revert MerkleAirdrop__InvalidSignature();
         }
 
         bytes32 leaf = keccak256(
-            bytes.concat(keccak256(abi.encode(to, amount)))
+            bytes.concat(keccak256(abi.encodePacked(to, amount)))
         );
         if (!MerkleProof.verify(merkleProof, i_merkleRoot, leaf)) {
             revert MerkleAirdrop__InvalidProof();
@@ -85,13 +101,28 @@ contract MerkleAirdrop is EIP712 {
         return i_airdropToken;
     }
 
+    // function _isValidSignature(
+    //     address expectedSigner,
+    //     bytes32 digest,
+    //     uint8 v,
+    //     bytes32 r,
+    //     bytes32 s
+    // ) internal pure returns (bool) {
+    //     address (address actualSigner,
+    //         /*ECDSA.RecoverError recoverError*/
+    //         ,
+    //         /*bytes32 signatureLength*/) = ECDSA.tryRecover(digest, v, r, s);
+    //     return actualSigner != address(0) && actualSigner == expectedSigner;
+    // }
+
     function _isValidSignature(
-        address expectedSigner,
+        address signer,
         bytes32 digest,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) internal pure returns (bool) {
-        address actualSigner = ECDSA.tryRecover(digest, v, r, s);
-        return actualSigner != address(0) && actualSigner == expectedSigner;
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) internal view returns (bool) {
+        bytes memory signature = abi.encode(_v, _r, _s);
+        return SignatureChecker.isValidSignatureNow(signer, digest, signature);
+    }
 }
